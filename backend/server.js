@@ -1,50 +1,66 @@
-const express = require("express");
-const app = express();
+import cv2
+import face_recognition
+import numpy as np
+import os
 
-app.use(express.json());
+# -----------------------------
+# Load known faces
+# -----------------------------
+known_face_encodings = []
+known_face_names = []
 
-// Store login events (for demo)
-let loginEvents = [];
+known_faces_dir = "known_faces"
 
-// SOC Risk Scoring Function
-function calculateRisk(event) {
-  let riskScore = 0;
+for file in os.listdir(known_faces_dir):
+    path = os.path.join(known_faces_dir, file)
+    
+    image = face_recognition.load_image_file(path)
+    encodings = face_recognition.face_encodings(image)
 
-  if (event.failedAttempts >= 3) riskScore += 30;
-  if (event.newDevice) riskScore += 20;
-  if (event.unusualTime) riskScore += 10;
-  if (event.suspiciousIP) riskScore += 25;
+    if len(encodings) > 0:
+        known_face_encodings.append(encodings[0])
+        known_face_names.append(os.path.splitext(file)[0])
 
-  return riskScore;
-}
+video_capture = cv2.VideoCapture(0)
 
-// Login Route (main SOC logic)
-app.post("/login", (req, res) => {
-  const event = req.body;
+while True:
+    ret, frame = video_capture.read()
+    if not ret:
+        break
 
-  const risk = calculateRisk(event);
+    # Convert from BGR (OpenCV) to RGB (face_recognition)
+    rgb_frame = frame[:, :, ::-1]
 
-  let status = "ALLOWED";
+    # Find faces in current frame
+    face_locations = face_recognition.face_locations(rgb_frame)
+    face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
 
-  if (risk >= 60) status = "BLOCKED";
-  else if (risk >= 30) status = "SUSPICIOUS";
+    face_names = []
 
-  // Save log
-  loginEvents.push({ ...event, risk, status });
+    for face_encoding in face_encodings:
+        matches = face_recognition.compare_faces(known_face_encodings, face_encoding)
+        name = "Unknown"
 
-  res.json({ status, risk });
-});
+        face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
 
-// View logs (for dashboard/demo)
-app.get("/logs", (req, res) => {
-  res.json(loginEvents);
-});
+        if len(face_distances) > 0:
+            best_match_index = np.argmin(face_distances)
+            if matches[best_match_index]:
+                name = known_face_names[best_match_index]
 
-// Basic test route
-app.get("/", (req, res) => {
-  res.send("SecureFace SOC backend is running");
-});
+        face_names.append(name)
 
-app.listen(5000, () => {
-  console.log("Server running on port 5000");
-});
+    # Draw results
+    for (top, right, bottom, left), name in zip(face_locations, face_names):
+        cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
+        cv2.putText(frame, name, (left, top - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+
+    cv2.imshow("Face Recognition", frame)
+
+    # Press 'q' to quit
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+video_capture.release()
+cv2.destroyAllWindows()
