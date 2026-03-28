@@ -1,3 +1,3 @@
 # FaceFilter
 The FaceFilter is a scanner that should help support cops when they stop people on the highway, street, road, etc. It allows them to check whether the person they are dealing with is dangerous, or the person has a criminal record. This allows the cop to get a good description of who he is dealing with and can make arrangements if necessary. Also, it allows cops to know if someone they stop is mental unstable and has trauma.
-This code app/website uses HTML, JavaScript, Flask, and Python.
+This code app/website uses HTML, JavaScript, Flask, and Python. The HTML contains the style and front end of the website, and the JavaScript is the user interface of the website. The Backend side contains the code for scanning a person's face, checking whether they are in the database. It also displays the video and contains the API to connect with the front end side.
