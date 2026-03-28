@@ -1,66 +1,87 @@
+from flask import Flask, render_template, Response, jsonify
 import cv2
 import face_recognition
 import numpy as np
 import os
 
-# -----------------------------
+app = Flask(__name__)
+
+# -------------------------
 # Load known faces
-# -----------------------------
-known_face_encodings = []
-known_face_names = []
+# -------------------------
+known_encodings = []
+known_names = []
 
-known_faces_dir = "known_faces"
+KNOWN_DIR = "known_faces"
 
-for file in os.listdir(known_faces_dir):
-    path = os.path.join(known_faces_dir, file)
-    
+for file in os.listdir(KNOWN_DIR):
+    path = os.path.join(KNOWN_DIR, file)
     image = face_recognition.load_image_file(path)
-    encodings = face_recognition.face_encodings(image)
 
-    if len(encodings) > 0:
-        known_face_encodings.append(encodings[0])
-        known_face_names.append(os.path.splitext(file)[0])
+    enc = face_recognition.face_encodings(image)
+    if len(enc) == 0:
+        continue
 
-video_capture = cv2.VideoCapture(0)
+    known_encodings.append(enc[0])
+    known_names.append(os.path.splitext(file)[0])
 
-while True:
-    ret, frame = video_capture.read()
-    if not ret:
-        break
+# -------------------------
+# Webcam
+# -------------------------
+camera = cv2.VideoCapture(0)
 
-    # Convert from BGR (OpenCV) to RGB (face_recognition)
-    rgb_frame = frame[:, :, ::-1]
+current_name = "No face"
 
-    # Find faces in current frame
-    face_locations = face_recognition.face_locations(rgb_frame)
-    face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
+def process_frame():
+    global current_name
 
-    face_names = []
+    success, frame = camera.read()
+    if not success:
+        return None
 
-    for face_encoding in face_encodings:
-        matches = face_recognition.compare_faces(known_face_encodings, face_encoding)
+    rgb = frame[:, :, ::-1]
+
+    face_locations = face_recognition.face_locations(rgb)
+    face_encodings = face_recognition.face_encodings(rgb, face_locations)
+
+    for encoding in face_encodings:
+        matches = face_recognition.compare_faces(known_encodings, encoding)
         name = "Unknown"
 
-        face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
+        distances = face_recognition.face_distance(known_encodings, encoding)
 
-        if len(face_distances) > 0:
-            best_match_index = np.argmin(face_distances)
-            if matches[best_match_index]:
-                name = known_face_names[best_match_index]
+        if len(distances) > 0:
+            best = np.argmin(distances)
+            if matches[best]:
+                name = known_names[best]
 
-        face_names.append(name)
+        current_name = name
 
-    # Draw results
-    for (top, right, bottom, left), name in zip(face_locations, face_names):
-        cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
-        cv2.putText(frame, name, (left, top - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+    # Encode frame to display in browser
+    _, buffer = cv2.imencode(".jpg", frame)
+    return buffer.tobytes()
 
-    cv2.imshow("Face Recognition", frame)
+def generate():
+    while True:
+        frame = process_frame()
+        if frame is None:
+            continue
 
-    # Press 'q' to quit
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+        yield (b"--frame\r\n"
+               b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
 
-video_capture.release()
-cv2.destroyAllWindows()
+@app.route("/")
+def index():
+    return render_template("facefilter.html")
+
+@app.route("/video")
+def video():
+    return Response(generate(),
+                    mimetype="multipart/x-mixed-replace; boundary=frame")
+
+@app.route("/name")
+def name():
+    return jsonify({"name": current_name})
+
+if __name__ == "__main__":
+    app.run(debug=True)
